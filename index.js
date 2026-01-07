@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, ChannelType, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, ChannelType, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType, REST, Routes, ButtonBuilder, ButtonStyle } = require('discord.js');
 const ai = require('./src/ai_engine');
 const fs = require('fs');
 const path = require('path');
@@ -106,11 +106,10 @@ client.on('interactionCreate', async interaction => {
     // 1. Handle Command
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'setup') {
-            // Fetch all categories
             const categories = interaction.guild.channels.cache
                 .filter(c => c.type === ChannelType.GuildCategory)
                 .map(c => ({ label: c.name, value: c.id }))
-                .slice(0, 25); // Limit to 25 for dropdown
+                .slice(0, 25);
 
             if (categories.length === 0) return interaction.reply("No categories found.");
 
@@ -119,11 +118,18 @@ client.on('interactionCreate', async interaction => {
                 .setPlaceholder('Select the News Category')
                 .addOptions(categories.map(c => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.value)));
 
-            const row = new ActionRowBuilder().addComponents(select);
+            // Add Save Button
+            const btn = new ButtonBuilder()
+                .setCustomId('btn_save_setup')
+                .setLabel('Save & Continue')
+                .setStyle(ButtonStyle.Success);
+
+            const row1 = new ActionRowBuilder().addComponents(select);
+            const row2 = new ActionRowBuilder().addComponents(btn);
 
             await interaction.reply({
                 content: 'Please select the category where you post Server News:',
-                components: [row],
+                components: [row1, row2],
                 ephemeral: true
             });
         }
@@ -134,8 +140,25 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId === 'select_news_category') {
             const selectedId = interaction.values[0];
             saveConfig(selectedId);
-            await scanNews(); // Refresh immediately
-            await interaction.update({ content: `✅ **Configuration Saved!**\nScanning category: <#${selectedId}>\nNews memory updated.`, components: [] });
+            // Just acknowledge, don't block. User must click Save.
+            await interaction.deferUpdate();
+        }
+    }
+
+    // 3. Handle Save Button
+    if (interaction.isButton()) {
+        if (interaction.customId === 'btn_save_setup') {
+            if (!NEWS_CATEGORY_ID) {
+                return interaction.reply({ content: "⚠️ Please select a category first.", ephemeral: true });
+            }
+            // Update UI immediately to prevent timeout
+            await interaction.update({
+                content: `✅ **News Category Saved Successfully.**\nSystem updated for <#${NEWS_CATEGORY_ID}>.\nNews context is refreshing in the background...`,
+                components: []
+            });
+
+            // Run heavy task in bg
+            scanNews().catch(err => console.error("BG Scan Error:", err));
         }
     }
 });
