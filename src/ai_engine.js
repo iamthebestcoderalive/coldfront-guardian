@@ -1,57 +1,37 @@
-const puppeteer = require('puppeteer');
+const axios = require('axios');
 
 class AIEngine {
     constructor() {
-        this.browser = null;
-        this.page = null;
-        this.isReady = false;
+        this.model = 'openai'; // polliniations supports: openai, mistral, llama
     }
 
     async init() {
-        if (this.isReady) return;
-        console.log("Initializing ColdFront Support Engine...");
-        this.browser = await puppeteer.launch({
-            headless: "new",
-            args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-        });
-        this.page = await this.browser.newPage();
-
-        // Inject Puter
-        await this.page.setContent(`
-            <!DOCTYPE html><html><head><script src="https://js.puter.com/v2/"></script></head>
-            <body><script>
-                function waitForPuter() {
-                    return new Promise(resolve => {
-                        const check = () => {
-                            if (window.puter) resolve();
-                            else setTimeout(check, 100);
-                        };
-                        check();
-                    });
-                }
-
-                window.askPuter = async (text, systemParams) => {
-                    await waitForPuter(); // Guard: Wait for lib load
-                    try {
-                        const res = await puter.ai.chat(text, { 
-                            model: 'gpt-4o-mini',
-                            system: systemParams 
-                        });
-                        return res?.message?.content || "System Error: Empty Response";
-                    } catch (err) { return "Error: " + err.message; }
-                };
-            </script></body></html>
-        `);
-        this.isReady = true;
+        console.log("ColdFront Support Engine (Lightweight) is Ready 🚀");
+        return true;
     }
 
     async generate(userMessage, systemContext) {
-        if (!this.isReady) await this.init();
+        try {
+            // Pollinations.ai (Free, No Key, Fast)
+            // Format: https://text.pollinations.ai/{prompt}?model={model}&system={system}
 
-        // Using passed systemContext (Persona + News) directly
-        return await this.page.evaluate(async (msg, sys) => {
-            return await window.askPuter(msg, sys);
-        }, userMessage, systemContext);
+            // Encode components to be URL safe
+            const prompt = encodeURIComponent(userMessage);
+            const system = encodeURIComponent(systemContext);
+            const model = encodeURIComponent(this.model);
+
+            // Construct URL
+            const url = `https://text.pollinations.ai/${prompt}?model=${model}&system=${system}`;
+
+            // Fetch
+            const response = await axios.get(url, { timeout: 30000 });
+
+            return response.data;
+        } catch (err) {
+            console.error("AI Network Error:", err.message);
+            return "⚠️ *System Malfunction: Unable to reach command.* (Network Error)";
+        }
     }
 }
+
 module.exports = new AIEngine();

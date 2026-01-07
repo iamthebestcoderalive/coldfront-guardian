@@ -9,8 +9,7 @@
   "dependencies": {
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5",
-    "express": "^5.2.1",
-    "puppeteer": "^23.6.0"
+    "express": "^5.2.1"
   },
   "author": "Antigravity Agent",
   "license": "ISC"
