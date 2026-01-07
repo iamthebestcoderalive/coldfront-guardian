@@ -199,14 +199,16 @@ client.on('messageCreate', async (message) => {
                 } catch (e) {
                     console.log(`AI Attempt ${i + 1} failed: ${e.message}`);
                     if (i === 1) throw e; // Throw on last attempt
+                    // Wait 3 seconds before retrying (backoff)
+                    await new Promise(r => setTimeout(r, 3000));
                 }
             }
 
             if (!response || response.trim() === "") throw new Error("Empty response");
             message.reply(response);
         } catch (err) {
-            console.error("AI Error:", err);
-            message.reply("⚠️ *I am having trouble connecting to the AI brain. Please try again in a moment.*");
+            console.error("AI Final Error:", err.message);
+            message.reply("⚠️ *I am currently overloaded. Please ask again in a few seconds.*");
         }
     }
 });

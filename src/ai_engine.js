@@ -11,25 +11,26 @@ class AIEngine {
     }
 
     async generate(userMessage, systemContext) {
+        // Pollinations.ai POST API
         try {
-            // Pollinations.ai (Free, No Key, Fast)
-            // Format: https://text.pollinations.ai/{prompt}?model={model}&system={system}
+            const response = await axios.post('https://text.pollinations.ai/', {
+                messages: [
+                    { role: 'system', content: systemContext },
+                    { role: 'user', content: userMessage }
+                ],
+                model: 'openai',
+                seed: Math.floor(Math.random() * 1000) // Random seed to avoid caching collisions
+            }, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 60000
+            });
 
-            // Encode components to be URL safe
-            const prompt = encodeURIComponent(userMessage);
-            const system = encodeURIComponent(systemContext);
-            const model = encodeURIComponent(this.model);
-
-            // Construct URL
-            const url = `https://text.pollinations.ai/${prompt}?model=${model}&system=${system}`;
-
-            // Fetch
-            const response = await axios.get(url, { timeout: 30000 });
-
-            return response.data;
+            return response.data?.choices?.[0]?.message?.content;
         } catch (err) {
-            console.error("AI Network Error:", err.message);
-            return "⚠️ *System Malfunction: Unable to reach command.* (Network Error)";
+            // Re-throw to let index.js handle retries
+            // Log for debugging but throw for logic
+            console.error("AI Request Failed:", err.message);
+            throw err;
         }
     }
 }
