@@ -13,8 +13,7 @@ RUN npm install
 COPY . .
 
 # Environment Setup
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Start
 CMD [ "node", "index.js" ]
