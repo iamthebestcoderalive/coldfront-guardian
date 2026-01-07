@@ -185,17 +185,28 @@ client.on('messageCreate', async (message) => {
         }
 
         try {
-            // Race condition fallback: 15s timeout
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000));
-            const aiPromise = ai.generate(message.content, fullContext);
+            // Retry logic: Attempt up to 2 times
+            let response = null;
+            for (let i = 0; i < 2; i++) {
+                try {
+                    // Increased to 90s to handle Render Free Tier cold starts
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 90000));
+                    const aiPromise = ai.generate(message.content, fullContext);
 
-            const response = await Promise.race([aiPromise, timeoutPromise]);
+                    response = await Promise.race([aiPromise, timeoutPromise]);
+
+                    if (response && response.trim() !== "") break; // Success, exit loop
+                } catch (e) {
+                    console.log(`AI Attempt ${i + 1} failed: ${e.message}`);
+                    if (i === 1) throw e; // Throw on last attempt
+                }
+            }
 
             if (!response || response.trim() === "") throw new Error("Empty response");
             message.reply(response);
         } catch (err) {
             console.error("AI Error:", err);
-            message.reply("⚠️ *Connection interrupted. Please try again.*");
+            message.reply("⚠️ *I am having trouble connecting to the AI brain. Please try again in a moment.*");
         }
     }
 });
