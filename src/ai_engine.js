@@ -15,18 +15,29 @@ class AIEngine {
             args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
         this.page = await this.browser.newPage();
-        
+
         // Inject Puter
         await this.page.setContent(`
             <!DOCTYPE html><html><head><script src="https://js.puter.com/v2/"></script></head>
             <body><script>
+                function waitForPuter() {
+                    return new Promise(resolve => {
+                        const check = () => {
+                            if (window.puter) resolve();
+                            else setTimeout(check, 100);
+                        };
+                        check();
+                    });
+                }
+
                 window.askPuter = async (text, systemParams) => {
+                    await waitForPuter(); // Guard: Wait for lib load
                     try {
                         const res = await puter.ai.chat(text, { 
                             model: 'gpt-4o-mini',
                             system: systemParams 
                         });
-                        return res.message.content;
+                        return res?.message?.content || "System Error: Empty Response";
                     } catch (err) { return "Error: " + err.message; }
                 };
             </script></body></html>
@@ -36,7 +47,7 @@ class AIEngine {
 
     async generate(userMessage, systemContext) {
         if (!this.isReady) await this.init();
-        
+
         // Using passed systemContext (Persona + News) directly
         return await this.page.evaluate(async (msg, sys) => {
             return await window.askPuter(msg, sys);
