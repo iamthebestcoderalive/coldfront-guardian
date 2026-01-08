@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, ChannelType, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType, REST, Routes, ButtonBuilder, ButtonStyle, Partials } = require('discord.js');
 const ai = require('./src/ai_engine');
+const { searchMinecraftWiki, isMinecraftQuestion } = require('./src/minecraft_wiki');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -265,6 +266,14 @@ You are an expert on Minecraft. Key facts:
   * Redstone basics: Power level 0-15, repeaters extend signal, comparators detect containers
   
 When answering Minecraft questions, be specific and cite exact mechanics.`;
+
+        // Search Minecraft Wiki if this is a Minecraft question
+        if (isMinecraftQuestion(message.content)) {
+            const wikiResult = await searchMinecraftWiki(cleanText);
+            if (wikiResult) {
+                fullContext += `\n\n--- MINECRAFT WIKI LOOKUP ---\n${wikiResult}\nUse this official source to answer accurately.\n--- END WIKI ---`;
+            }
+        }
 
         // Add server news ONLY if configured and available
         if (NEWS_CATEGORY_ID && newsMemory && newsMemory.trim() !== "") {
