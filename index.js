@@ -267,6 +267,10 @@ You are an expert on Minecraft. Key facts:
   
 When answering Minecraft questions, be specific and cite exact mechanics.`;
 
+        // Clean user message text FIRST (before wiki search uses it)
+        let cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
+        if (!cleanText) cleanText = "Hello!";
+
         // Search Minecraft Wiki if this is a Minecraft question
         if (isMinecraftQuestion(message.content)) {
             const wikiResult = await searchMinecraftWiki(cleanText);
@@ -283,9 +287,6 @@ When answering Minecraft questions, be specific and cite exact mechanics.`;
         }
 
         fullContext += `\n\nBe helpful, honest, and concise. Minecraft = your specialty. Server news = only if provided above.`;
-        // Clean text
-        let cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
-        if (!cleanText) cleanText = "Hello!";
 
         try {
             await message.channel.sendTyping();
