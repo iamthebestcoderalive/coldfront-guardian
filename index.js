@@ -39,6 +39,7 @@ function loadPersona() {
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 let NEWS_CATEGORY_ID = null;
+let TICKET_CHANNEL_ID = null;
 let newsMemory = "";
 
 function loadConfig() {
@@ -46,20 +47,25 @@ function loadConfig() {
         if (fs.existsSync(CONFIG_PATH)) {
             const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
             NEWS_CATEGORY_ID = config.NEWS_CATEGORY_ID || null;
-            console.log(`✅ Config loaded. NEWS_CATEGORY_ID: ${NEWS_CATEGORY_ID || 'Not Set'}`);
+            TICKET_CHANNEL_ID = config.TICKET_CHANNEL_ID || null;
+            console.log(`✅ Config loaded. NEWS: ${NEWS_CATEGORY_ID || 'Not Set'}, TICKET: ${TICKET_CHANNEL_ID || 'Not Set'}`);
         } else {
-            console.warn("⚠️ config.json not found, starting with no news category.");
+            console.warn("⚠️ config.json not found, starting with no configuration.");
         }
     } catch (err) {
         console.error("Error reading config:", err);
     }
 }
 
-function saveConfig(categoryId) {
-    NEWS_CATEGORY_ID = categoryId;
+function saveConfig(newsId, ticketId) {
+    NEWS_CATEGORY_ID = newsId || NEWS_CATEGORY_ID;
+    TICKET_CHANNEL_ID = ticketId || TICKET_CHANNEL_ID;
     try {
-        fs.writeFileSync(CONFIG_PATH, JSON.stringify({ NEWS_CATEGORY_ID: categoryId }, null, 2), 'utf-8');
-        console.log(`✅ Config saved. NEWS_CATEGORY_ID set to ${categoryId}`);
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify({
+            NEWS_CATEGORY_ID: NEWS_CATEGORY_ID,
+            TICKET_CHANNEL_ID: TICKET_CHANNEL_ID
+        }, null, 2), 'utf-8');
+        console.log(`✅ Config saved. NEWS: ${NEWS_CATEGORY_ID}, TICKET: ${TICKET_CHANNEL_ID}`);
     } catch (err) {
         console.error("Error writing config:", err);
     }
@@ -71,18 +77,32 @@ client.once('ready', async () => {
     await ai.init();
     console.log(`❄️ ColdFront Guardian active: ${client.user.tag}`);
 
-    // Register Slash Command
+    // Start Express for Render health check
+    const app = express();
+    const PORT = process.env.PORT || 3000;
+    app.get('/', (req, res) => res.send('🤖 ColdFront Guardian is running'));
+    app.get('/health', (req, res) => res.json({ status: 'ok', bot: client.user.tag }));
+    app.listen(PORT, () => console.log(`🌐 Web server listening on port ${PORT}`));
+
+    // Register Slash Commands
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
         console.log('Refreshing application (/) commands...');
         await rest.put(
             Routes.applicationCommands(client.user.id),
             {
-                body: [{
-                    name: 'setup',
-                    description: 'Configure the News Category for the bot',
-                    default_member_permissions: "8" // Administrator only
-                }]
+                body: [
+                    {
+                        name: 'setup',
+                        description: 'Configure News Category and Ticket Support Channel',
+                        default_member_permissions: "8" // Administrator only
+                    },
+                    {
+                        name: 'close',
+                        description: 'Close/delete the current ticket channel',
+                        default_member_permissions: "0" // Everyone can use
+                    }
+                ]
             },
         );
         console.log('Successfully reloaded application (/) commands.');
@@ -118,8 +138,11 @@ async function scanNews() {
     }
 }
 
+// Temporary storage for multi-step setup
+const setupSessions = new Map();
+
 client.on('interactionCreate', async interaction => {
-    // 1. Handle Command
+    // 1. Handle Commands
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'setup') {
             const categories = interaction.guild.channels.cache
@@ -127,49 +150,85 @@ client.on('interactionCreate', async interaction => {
                 .map(c => ({ label: c.name, value: c.id }))
                 .slice(0, 25);
 
-            if (categories.length === 0) return interaction.reply("No categories found.");
+            if (categories.length === 0) return interaction.reply({ content: "❌ No categories found.", ephemeral: true });
 
             const select = new StringSelectMenuBuilder()
                 .setCustomId('select_news_category')
-                .setPlaceholder('Select the News Category')
+                .setPlaceholder('📰 Select News Category')
                 .addOptions(categories.map(c => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.value)));
 
-            // Add Save Button
-            const btn = new ButtonBuilder()
-                .setCustomId('btn_save_setup')
-                .setLabel('Save & Continue')
-                .setStyle(ButtonStyle.Success);
-
-            const row1 = new ActionRowBuilder().addComponents(select);
-            const row2 = new ActionRowBuilder().addComponents(btn);
+            const row = new ActionRowBuilder().addComponents(select);
 
             await interaction.reply({
-                content: 'Please select the category where you post Server News:',
-                components: [row1, row2],
+                content: '### Step 1/2: Set the News Category\n\nUse the dropdown below to select where you post server news:',
+                components: [row],
                 ephemeral: true
             });
-        }
-    }
 
-    // 2. Handle Dropdown
-    if (interaction.isStringSelectMenu()) {
-        if (interaction.customId === 'select_news_category') {
-            const selectedId = interaction.values[0];
-            saveConfig(selectedId);
-            await interaction.deferUpdate();
+            // Initialize session
+            setupSessions.set(interaction.user.id, { newsId: null, ticketId: null });
         }
-    }
 
-    // 3. Handle Save Button
-    if (interaction.isButton()) {
-        if (interaction.customId === 'btn_save_setup') {
-            if (!NEWS_CATEGORY_ID) {
-                return interaction.reply({ content: "⚠️ Please select a category first.", ephemeral: true });
+        if (interaction.commandName === 'close') {
+            // Check if this is a ticket channel
+            if (interaction.channel.parentId === TICKET_CHANNEL_ID || interaction.channel.name.startsWith('ticket-')) {
+                await interaction.reply('🗑️ Closing ticket...');
+                setTimeout(() => interaction.channel.delete().catch(console.error), 2000);
+            } else {
+                await interaction.reply({ content: '❌ This command only works in ticket channels.', ephemeral: true });
             }
+        }
+    }
+
+    // 2. Handle Dropdown Selections
+    if (interaction.isStringSelectMenu()) {
+        const session = setupSessions.get(interaction.user.id);
+        if (!session) return;
+
+        if (interaction.customId === 'select_news_category') {
+            session.newsId = interaction.values[0];
+            setupSessions.set(interaction.user.id, session);
+
+            // Show Ticket Channel Selection
+            const channels = interaction.guild.channels.cache
+                .filter(c => c.type === ChannelType.GuildText)
+                .map(c => ({ label: `#${c.name}`, value: c.id }))
+                .slice(0, 25);
+
+            const ticketSelect = new StringSelectMenuBuilder()
+                .setCustomId('select_ticket_channel')
+                .setPlaceholder('🎫 Select Ticket Support Channel (Optional)')
+                .addOptions([
+                    new StringSelectMenuOptionBuilder().setLabel('❌ Skip (No Ticket Channel)').setValue('SKIP'),
+                    ...channels.map(c => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.value))
+                ]);
+
+            const row = new ActionRowBuilder().addComponents(ticketSelect);
+
             await interaction.update({
-                content: `✅ **News Category Saved Successfully.**\nSystem updated for <#${NEWS_CATEGORY_ID}>.\nNews context is refreshing in the background...`,
+                content: '### Step 2/2: Set the Ticket Channel (Optional)\n\nSelect a channel where users can get support, or skip this step:',
+                components: [row]
+            });
+        }
+
+        if (interaction.customId === 'select_ticket_channel') {
+            const ticketId = interaction.values[0] === 'SKIP' ? null : interaction.values[0];
+            session.ticketId = ticketId;
+
+            // Save configuration
+            saveConfig(session.newsId, session.ticketId);
+            setupSessions.delete(interaction.user.id);
+
+            let message = '✅ **Setup Complete!**\n\n';
+            message += `📰 **News Category:** <#${session.newsId}>\n`;
+            message += ticketId ? `🎫 **Ticket Channel:** <#${ticketId}>` : '🎫 **Ticket Channel:** Not Set';
+            message += '\n\n_News is being scanned now..._';
+
+            await interaction.update({
+                content: message,
                 components: []
             });
+
             scanNews().catch(err => console.error("BG Scan Error:", err));
         }
     }
@@ -190,12 +249,18 @@ client.on('messageCreate', async (message) => {
     if (message.channel.name.includes('ticket') || message.mentions.has(client.user)) {
         await message.channel.sendTyping();
 
+        // Build AI context - only include news if configured
         let fullContext = systemPersona;
-        if (fullContext.includes('[NEWS_CONTEXT]')) {
-            fullContext = fullContext.replace('[NEWS_CONTEXT]', newsMemory);
+
+        if (NEWS_CATEGORY_ID && newsMemory) {
+            // Bot has access to news
+            fullContext += `\n\n--- RECENT NEWS (Last 15 Updates) ---\n${newsMemory}\n\n--- END OF NEWS ---`;
         } else {
-            fullContext = `${fullContext}\n\nCurrent News/Status: ${newsMemory}`;
+            // Bot does NOT have news access - tell it not to make stuff up
+            fullContext += `\n\n⚠️ **IMPORTANT**: You do NOT have access to news updates. If asked about news, politely say:\n"I don't have access to the latest news right now. Please ask an admin to run /setup to connect me to the news channel!"`;
         }
+
+        fullContext += `\n\nRespond naturally and be helpful.`;
         // Clean text
         let cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
         if (!cleanText) cleanText = "Hello!";
