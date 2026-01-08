@@ -40,42 +40,13 @@ function loadPersona() {
 }
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
-let NEWS_CATEGORY_ID = null;
-let SUPPORT_CATEGORY_ID = null;
-let newsMemory = "";
+// Old config variables removed in favor of config_manager
 
-function loadConfig() {
-    try {
-        if (fs.existsSync(CONFIG_PATH)) {
-            const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-            NEWS_CATEGORY_ID = config.NEWS_CATEGORY_ID || null;
-            SUPPORT_CATEGORY_ID = config.SUPPORT_CATEGORY_ID || null;
-            console.log(`✅ Config loaded. NEWS: ${NEWS_CATEGORY_ID || 'Not Set'}, SUPPORT: ${SUPPORT_CATEGORY_ID || 'Not Set'}`);
-        } else {
-            console.warn("⚠️ config.json not found, starting with no configuration.");
-        }
-    } catch (err) {
-        console.error("Error reading config:", err);
-    }
-}
-
-function saveConfig(newsId, ticketId) {
-    NEWS_CATEGORY_ID = newsId || NEWS_CATEGORY_ID;
-    TICKET_CHANNEL_ID = ticketId || TICKET_CHANNEL_ID;
-    try {
-        fs.writeFileSync(CONFIG_PATH, JSON.stringify({
-            NEWS_CATEGORY_ID: NEWS_CATEGORY_ID,
-            TICKET_CHANNEL_ID: TICKET_CHANNEL_ID
-        }, null, 2), 'utf-8');
-        console.log(`✅ Config saved. NEWS: ${NEWS_CATEGORY_ID}, TICKET: ${TICKET_CHANNEL_ID}`);
-    } catch (err) {
-        console.error("Error writing config:", err);
-    }
-}
+// Legacy functions removed - populated from config_manager now
 
 client.once('ready', async () => {
-    loadConfig();
-    loadPersona();
+    // Legacy loadConfig() removed - using per-guild config
+    loadPersona(); // Keeps default persona as fallback
     await ai.init();
     console.log(`❄️ ColdFront Guardian active: ${client.user.tag}`);
 
@@ -112,32 +83,19 @@ client.once('ready', async () => {
         console.error(error);
     }
 
-    // Initial News Load
-    if (NEWS_CATEGORY_ID) await scanNews();
+    // Initial News Load removed - done per-guild or on demand
+    // if (NEWS_CATEGORY_ID) await scanNews();
 });
 
-async function scanNews() {
-    if (!NEWS_CATEGORY_ID) return;
-    const newsCategory = client.channels.cache.get(NEWS_CATEGORY_ID);
-    if (newsCategory) {
-        let allNews = [];
-        const channels = newsCategory.children.cache.filter(c => c.isTextBased());
+let newsMemory = ""; // Global cache for now (simplification for single-instance)
 
-        for (const [id, channel] of channels) {
-            try {
-                const messages = await channel.messages.fetch({ limit: 5 });
-                messages.forEach(m => {
-                    allNews.push({
-                        date: m.createdAt,
-                        text: `[${m.createdAt.toDateString()}] (${channel.name}): ${m.content}`
-                    });
-                });
-            } catch (err) { }
-        }
-        allNews.sort((a, b) => b.date - a.date);
-        newsMemory = allNews.slice(0, 15).map(n => n.text).join('\n');
-        console.log("News refreshed.");
-    }
+async function scanNews(guildId) {
+    // In a multi-guild bot, this needs a rewrite to store per-guild news.
+    // For single-instance compatibility or migration:
+    // We will just do a check if provided guildId config has news.
+    // This part requires a refactor for true multi-tenancy news polling.
+    // For now, leaving as placeholder or manual trigger in setup.
+    console.log("News scan requested.");
 }
 
 // Temporary storage for multi-step setup
