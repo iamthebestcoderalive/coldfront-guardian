@@ -143,37 +143,22 @@ async function scanNews() {
 // Temporary storage for multi-step setup
 const setupSessions = new Map();
 
+// --- MODULES ---
+const { startSetup, handleSetupInteraction } = require('./src/setup_wizard');
+const { loadConfig, getConfigValue, isSetupComplete } = require('./src/config_manager');
+const { generatePersona } = require('./src/persona_generator');
+
 client.on('interactionCreate', async interaction => {
     // 1. Handle Commands
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'setup') {
-            const categories = interaction.guild.channels.cache
-                .filter(c => c.type === ChannelType.GuildCategory)
-                .map(c => ({ label: c.name, value: c.id }))
-                .slice(0, 25);
-
-            if (categories.length === 0) return interaction.reply({ content: "❌ No categories found.", ephemeral: true });
-
-            const select = new StringSelectMenuBuilder()
-                .setCustomId('select_news_category')
-                .setPlaceholder('📰 Select News Category')
-                .addOptions(categories.map(c => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.value)));
-
-            const row = new ActionRowBuilder().addComponents(select);
-
-            await interaction.reply({
-                content: '### Step 1/2: Set the News Category\n\nUse the dropdown below to select where you post server news:',
-                components: [row],
-                ephemeral: true
-            });
-
-            // Initialize session
-            setupSessions.set(interaction.user.id, { newsId: null, ticketId: null });
+            await startSetup(interaction);
         }
 
         if (interaction.commandName === 'close') {
+            const supportId = getConfigValue(interaction.guildId, 'SUPPORT_CATEGORY_ID');
             // Check if this channel is in the support category or is a ticket channel
-            if (interaction.channel.parentId === SUPPORT_CATEGORY_ID || interaction.channel.name.startsWith('ticket-')) {
+            if ((supportId && interaction.channel.parentId === supportId) || interaction.channel.name.startsWith('ticket-')) {
                 await interaction.reply('🗑️ Closing ticket...');
                 setTimeout(() => interaction.channel.delete().catch(console.error), 2000);
             } else {
@@ -182,57 +167,9 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // 2. Handle Dropdown Selections
-    if (interaction.isStringSelectMenu()) {
-        const session = setupSessions.get(interaction.user.id);
-        if (!session) return;
-
-        if (interaction.customId === 'select_news_category') {
-            session.newsId = interaction.values[0];
-            setupSessions.set(interaction.user.id, session);
-
-            // Show Support Category Selection (not channel!)
-            const categories = interaction.guild.channels.cache
-                .filter(c => c.type === ChannelType.GuildCategory)
-                .map(c => ({ label: c.name, value: c.id }))
-                .slice(0, 25);
-
-            const supportSelect = new StringSelectMenuBuilder()
-                .setCustomId('select_support_category')
-                .setPlaceholder('🎫 Select Support/Ticket Category (Optional)')
-                .addOptions([
-                    new StringSelectMenuOptionBuilder().setLabel('❌ Skip (No Support Category)').setValue('SKIP'),
-                    ...categories.map(c => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.value))
-                ]);
-
-            const row = new ActionRowBuilder().addComponents(supportSelect);
-
-            await interaction.update({
-                content: '### Step 2/2: Set the Support Category (Optional)\n\nSelect a category where users can get support (ticket channels will be created here), or skip:',
-                components: [row]
-            });
-        }
-
-        if (interaction.customId === 'select_support_category') {
-            const supportId = interaction.values[0] === 'SKIP' ? null : interaction.values[0];
-            session.supportId = supportId;
-
-            // Save configuration
-            saveConfig(session.newsId, session.supportId);
-            setupSessions.delete(interaction.user.id);
-
-            let message = '✅ **Setup Complete!**\n\n';
-            message += `📰 **News Category:** <#${session.newsId}>\n`;
-            message += session.supportId ? `🎫 **Support Category:** <#${session.supportId}>` : '🎫 **Support Category:** Not Set';
-            message += '\n\n_News is being scanned now..._';
-
-            await interaction.update({
-                content: message,
-                components: []
-            });
-
-            scanNews().catch(err => console.error("BG Scan Error:", err));
-        }
+    // 2. Handle Setup Wizard Interactions (Modals, Selects, Buttons)
+    if (interaction.customId && (interaction.customId.startsWith('setup_') || interaction.customId === 'server_name')) {
+        await handleSetupInteraction(interaction);
     }
 });
 
@@ -251,34 +188,14 @@ client.on('messageCreate', async (message) => {
     if (message.channel.name.includes('ticket') || message.mentions.has(client.user)) {
         await message.channel.sendTyping();
 
-        // Build AI context - only include news if configured
-        let fullContext = systemPersona;
+        // Load config for this guild
+        const guildConfig = loadConfig(message.guildId);
 
-        // Add Minecraft Knowledge Base
-        fullContext += `\n\n## Minecraft Knowledge Base (Official Wiki Reference)
-You are an expert on Minecraft. Key facts:
-- **Latest Version**: 1.21 (Tricky Trials Update) - Added Trial Chambers, Breeze mob, new copper blocks
-- **Common Questions**:
-  * Diamond level: Y=-64 to Y=16, most common at Y=-59
-  * Iron golem farms: Need 3 villagers + 3 beds + zombie scare trigger
-  * Nether portal: Minimum 4x5 obsidian frame, light with flint & steel
-  * Enchanting: Max level 30 (needs 15 bookshelves around table)
-  * Elytra: Found in End Ships after defeating Ender Dragon
-  * Redstone basics: Power level 0-15, repeaters extend signal, comparators detect containers
-  
-When answering Minecraft questions, be specific and cite exact mechanics.`;
+        // Generate dynamic persona based on config
+        let fullContext = generatePersona(guildConfig);
 
-        // Add Comprehensive Minecraft Knowledge Base
-        fullContext += `\n\n## Comprehensive Minecraft Expertise
-You are an ABSOLUTE EXPERT on ALL Minecraft topics:
-- **Vanilla**: All versions (Java/Bedrock), mechanics, redstone, farms, builds
-- **Plugins**: Bukkit, Spigot, Paper, PocketMine-MP plugins (Essentials, WorldEdit, LuckPerms, etc.)
-- **Server Software**: Vanilla, Bukkit, Spigot, Paper, Purpur, PocketMine-MP, Nukkit
-- **Mods**: Forge, Fabric, Quilt mods (Create, Mekanism, Tinkers, etc.)
-- **Modpacks**: FTB, All The Mods, RLCraft, SkyFactory
-- **Server Admin**: Configuration, performance, anti-cheat, permissions
-
-**CRITICAL**: Minecraft plugins and mods ARE Minecraft - you help with ALL of this!`;
+        // Dynamic persona already includes Knowledge Base and Scope Rules
+        // We only append dynamic real-time data like Wiki results here
 
         // Clean user message text FIRST (before wiki search uses it)
         let cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
@@ -293,13 +210,18 @@ You are an ABSOLUTE EXPERT on ALL Minecraft topics:
         }
 
         // Add server news ONLY if configured and available
-        if (NEWS_CATEGORY_ID && newsMemory && newsMemory.trim() !== "") {
-            fullContext += `\n\n--- RECENT NEWS (ColdFront Server Updates) ---\n${newsMemory}\n--- END OF NEWS ---\n\n**CRITICAL**: The above news is REAL data from the server. You may reference it ONLY.`;
+        const newsId = guildConfig.NEWS_CATEGORY_ID;
+        // Note: For multi-server news memory, we would need a map. 
+        // For now, scan fresh or use global cache if valid.
+        // Ideally, we implement per-server news cache.
+
+        if (newsId && newsMemory && newsMemory.trim() !== "") {
+            fullContext += `\n\n--- RECENT NEWS (${guildConfig.SERVER_NAME} Updates) ---\n${newsMemory}\n--- END OF NEWS ---\n\n**CRITICAL**: The above news is REAL data from the server. You may reference it ONLY.`;
         } else {
             fullContext += `\n\n--- NO SERVER NEWS AVAILABLE ---\n**CRITICAL INSTRUCTION**: You do NOT have access to server news right now.\n- If asked about server updates/news, say: "I don't have any recent news updates right now. Check back later or ask a staff member!"\n- DO NOT make up any events, updates, or changes\n- DO NOT say generic things like "seasonal events" or "bug fixes"\n- Be honest that you don't have this information\n--- END ---`;
         }
 
-        fullContext += `\n\n**SCOPE RULES**:\n- ✅ You help with: ALL Minecraft topics (vanilla, plugins, mods, PocketMine, server setups)\n- ❌ You do NOT help with: Roblox, Fortnite, or other non-Minecraft games\n- Only mention scope limitations if asked about non-Minecraft games\n- Allow casual conversation naturally\n\nBe helpful, honest, and friendly. You are a Minecraft expert - ALL aspects of Minecraft!`;
+
 
         try {
             await message.channel.sendTyping();
