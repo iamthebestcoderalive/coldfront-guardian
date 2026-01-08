@@ -214,7 +214,7 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.customId === 'select_support_category') {
             const supportId = interaction.values[0] === 'SKIP' ? null : interaction.values[0];
-            session.ticketId = supportId;
+            session.supportId = supportId;
 
             // Save configuration
             saveConfig(session.newsId, session.supportId);
