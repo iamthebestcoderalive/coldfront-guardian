@@ -40,7 +40,7 @@ function loadPersona() {
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 let NEWS_CATEGORY_ID = null;
-let TICKET_CHANNEL_ID = null;
+let SUPPORT_CATEGORY_ID = null;
 let newsMemory = "";
 
 function loadConfig() {
@@ -48,8 +48,8 @@ function loadConfig() {
         if (fs.existsSync(CONFIG_PATH)) {
             const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
             NEWS_CATEGORY_ID = config.NEWS_CATEGORY_ID || null;
-            TICKET_CHANNEL_ID = config.TICKET_CHANNEL_ID || null;
-            console.log(`✅ Config loaded. NEWS: ${NEWS_CATEGORY_ID || 'Not Set'}, TICKET: ${TICKET_CHANNEL_ID || 'Not Set'}`);
+            SUPPORT_CATEGORY_ID = config.SUPPORT_CATEGORY_ID || null;
+            console.log(`✅ Config loaded. NEWS: ${NEWS_CATEGORY_ID || 'Not Set'}, SUPPORT: ${SUPPORT_CATEGORY_ID || 'Not Set'}`);
         } else {
             console.warn("⚠️ config.json not found, starting with no configuration.");
         }
@@ -95,7 +95,7 @@ client.once('ready', async () => {
                 body: [
                     {
                         name: 'setup',
-                        description: 'Configure News Category and Ticket Support Channel',
+                        description: 'Configure News Category and Support Category for tickets',
                         default_member_permissions: "8" // Administrator only
                     },
                     {
@@ -171,12 +171,12 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.commandName === 'close') {
-            // Check if this is a ticket channel
-            if (interaction.channel.parentId === TICKET_CHANNEL_ID || interaction.channel.name.startsWith('ticket-')) {
+            // Check if this channel is in the support category or is a ticket channel
+            if (interaction.channel.parentId === SUPPORT_CATEGORY_ID || interaction.channel.name.startsWith('ticket-')) {
                 await interaction.reply('🗑️ Closing ticket...');
                 setTimeout(() => interaction.channel.delete().catch(console.error), 2000);
             } else {
-                await interaction.reply({ content: '❌ This command only works in ticket channels.', ephemeral: true });
+                await interaction.reply({ content: '❌ This command only works in ticket channels inside the support category.', ephemeral: true });
             }
         }
     }
@@ -190,39 +190,39 @@ client.on('interactionCreate', async interaction => {
             session.newsId = interaction.values[0];
             setupSessions.set(interaction.user.id, session);
 
-            // Show Ticket Channel Selection
-            const channels = interaction.guild.channels.cache
-                .filter(c => c.type === ChannelType.GuildText)
-                .map(c => ({ label: `#${c.name}`, value: c.id }))
+            // Show Support Category Selection (not channel!)
+            const categories = interaction.guild.channels.cache
+                .filter(c => c.type === ChannelType.GuildCategory)
+                .map(c => ({ label: c.name, value: c.id }))
                 .slice(0, 25);
 
-            const ticketSelect = new StringSelectMenuBuilder()
-                .setCustomId('select_ticket_channel')
-                .setPlaceholder('🎫 Select Ticket Support Channel (Optional)')
+            const supportSelect = new StringSelectMenuBuilder()
+                .setCustomId('select_support_category')
+                .setPlaceholder('🎫 Select Support/Ticket Category (Optional)')
                 .addOptions([
-                    new StringSelectMenuOptionBuilder().setLabel('❌ Skip (No Ticket Channel)').setValue('SKIP'),
-                    ...channels.map(c => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.value))
+                    new StringSelectMenuOptionBuilder().setLabel('❌ Skip (No Support Category)').setValue('SKIP'),
+                    ...categories.map(c => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.value))
                 ]);
 
-            const row = new ActionRowBuilder().addComponents(ticketSelect);
+            const row = new ActionRowBuilder().addComponents(supportSelect);
 
             await interaction.update({
-                content: '### Step 2/2: Set the Ticket Channel (Optional)\n\nSelect a channel where users can get support, or skip this step:',
+                content: '### Step 2/2: Set the Support Category (Optional)\n\nSelect a category where users can get support (ticket channels will be created here), or skip:',
                 components: [row]
             });
         }
 
-        if (interaction.customId === 'select_ticket_channel') {
-            const ticketId = interaction.values[0] === 'SKIP' ? null : interaction.values[0];
-            session.ticketId = ticketId;
+        if (interaction.customId === 'select_support_category') {
+            const supportId = interaction.values[0] === 'SKIP' ? null : interaction.values[0];
+            session.ticketId = supportId;
 
             // Save configuration
-            saveConfig(session.newsId, session.ticketId);
+            saveConfig(session.newsId, session.supportId);
             setupSessions.delete(interaction.user.id);
 
             let message = '✅ **Setup Complete!**\n\n';
             message += `📰 **News Category:** <#${session.newsId}>\n`;
-            message += ticketId ? `🎫 **Ticket Channel:** <#${ticketId}>` : '🎫 **Ticket Channel:** Not Set';
+            message += session.supportId ? `🎫 **Support Category:** <#${session.supportId}>` : '🎫 **Support Category:** Not Set';
             message += '\n\n_News is being scanned now..._';
 
             await interaction.update({
