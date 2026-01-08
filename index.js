@@ -252,15 +252,28 @@ client.on('messageCreate', async (message) => {
         // Build AI context - only include news if configured
         let fullContext = systemPersona;
 
-        if (NEWS_CATEGORY_ID && newsMemory) {
-            // Bot has access to news
-            fullContext += `\n\n--- RECENT NEWS (Last 15 Updates) ---\n${newsMemory}\n\n--- END OF NEWS ---`;
+        // Add Minecraft Knowledge Base
+        fullContext += `\n\n## Minecraft Knowledge Base (Official Wiki Reference)
+You are an expert on Minecraft. Key facts:
+- **Latest Version**: 1.21 (Tricky Trials Update) - Added Trial Chambers, Breeze mob, new copper blocks
+- **Common Questions**:
+  * Diamond level: Y=-64 to Y=16, most common at Y=-59
+  * Iron golem farms: Need 3 villagers + 3 beds + zombie scare trigger
+  * Nether portal: Minimum 4x5 obsidian frame, light with flint & steel
+  * Enchanting: Max level 30 (needs 15 bookshelves around table)
+  * Elytra: Found in End Ships after defeating Ender Dragon
+  * Redstone basics: Power level 0-15, repeaters extend signal, comparators detect containers
+  
+When answering Minecraft questions, be specific and cite exact mechanics.`;
+
+        // Add server news ONLY if configured and available
+        if (NEWS_CATEGORY_ID && newsMemory && newsMemory.trim() !== "") {
+            fullContext += `\n\n--- RECENT NEWS (ColdFront Server Updates) ---\n${newsMemory}\n--- END OF NEWS ---\n\n**CRITICAL**: The above news is REAL data from the server. You may reference it ONLY.`;
         } else {
-            // Bot does NOT have news access - tell it not to make stuff up
-            fullContext += `\n\n⚠️ **IMPORTANT**: You do NOT have access to news updates. If asked about news, politely say:\n"I don't have access to the latest news right now. Please ask an admin to run /setup to connect me to the news channel!"`;
+            fullContext += `\n\n--- NO SERVER NEWS AVAILABLE ---\n**CRITICAL INSTRUCTION**: You do NOT have access to server news right now.\n- If asked about server updates/news, say: "I don't have any recent news updates right now. Check back later or ask a staff member!"\n- DO NOT make up any events, updates, or changes\n- DO NOT say generic things like "seasonal events" or "bug fixes"\n- Be honest that you don't have this information\n--- END ---`;
         }
 
-        fullContext += `\n\nRespond naturally and be helpful.`;
+        fullContext += `\n\nBe helpful, honest, and concise. Minecraft = your specialty. Server news = only if provided above.`;
         // Clean text
         let cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
         if (!cleanText) cleanText = "Hello!";
