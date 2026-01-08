@@ -286,7 +286,7 @@ When answering Minecraft questions, be specific and cite exact mechanics.`;
             fullContext += `\n\n--- NO SERVER NEWS AVAILABLE ---\n**CRITICAL INSTRUCTION**: You do NOT have access to server news right now.\n- If asked about server updates/news, say: "I don't have any recent news updates right now. Check back later or ask a staff member!"\n- DO NOT make up any events, updates, or changes\n- DO NOT say generic things like "seasonal events" or "bug fixes"\n- Be honest that you don't have this information\n--- END ---`;
         }
 
-        fullContext += `\n\n**SCOPE LIMITATION**:\n- You ONLY help with: ColdFront Minecraft Server and Minecraft gameplay\n- You do NOT help with: Roblox, Fortnite, or ANY other games\n- If asked about other games, say: "I'm specialized in Minecraft and ColdFront only!"\n\nBe helpful, honest, and concise. Minecraft = your specialty. Server news = only if provided above.`;
+        fullContext += `\n\n**SCOPE RULES**:\n- You help with: ColdFront Minecraft Server, Minecraft gameplay, and friendly conversation\n- You do NOT answer questions about: Roblox, Fortnite, or other games\n- ONLY mention your limitations if someone asks for help with another game\n- Allow casual conversation ("thanks", "bye", "how are you") without bringing up limitations\n\nBe helpful, honest, and friendly. Minecraft = your specialty. Server news = only if provided above.`;
 
         try {
             await message.channel.sendTyping();
