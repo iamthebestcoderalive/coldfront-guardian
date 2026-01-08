@@ -2,6 +2,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, ChannelType, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType, REST, Routes, ButtonBuilder, ButtonStyle, Partials } = require('discord.js');
 const ai = require('./src/ai_engine');
 const { searchMinecraftWiki, isMinecraftQuestion } = require('./src/minecraft_wiki');
+const { searchWeb } = require('./src/web_search');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -267,6 +268,18 @@ You are an expert on Minecraft. Key facts:
   
 When answering Minecraft questions, be specific and cite exact mechanics.`;
 
+        // Add Comprehensive Minecraft Knowledge Base
+        fullContext += `\n\n## Comprehensive Minecraft Expertise
+You are an ABSOLUTE EXPERT on ALL Minecraft topics:
+- **Vanilla**: All versions (Java/Bedrock), mechanics, redstone, farms, builds
+- **Plugins**: Bukkit, Spigot, Paper, PocketMine-MP plugins (Essentials, WorldEdit, LuckPerms, etc.)
+- **Server Software**: Vanilla, Bukkit, Spigot, Paper, Purpur, PocketMine-MP, Nukkit
+- **Mods**: Forge, Fabric, Quilt mods (Create, Mekanism, Tinkers, etc.)
+- **Modpacks**: FTB, All The Mods, RLCraft, SkyFactory
+- **Server Admin**: Configuration, performance, anti-cheat, permissions
+
+**CRITICAL**: Minecraft plugins and mods ARE Minecraft - you help with ALL of this!`;
+
         // Clean user message text FIRST (before wiki search uses it)
         let cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
         if (!cleanText) cleanText = "Hello!";
@@ -286,7 +299,7 @@ When answering Minecraft questions, be specific and cite exact mechanics.`;
             fullContext += `\n\n--- NO SERVER NEWS AVAILABLE ---\n**CRITICAL INSTRUCTION**: You do NOT have access to server news right now.\n- If asked about server updates/news, say: "I don't have any recent news updates right now. Check back later or ask a staff member!"\n- DO NOT make up any events, updates, or changes\n- DO NOT say generic things like "seasonal events" or "bug fixes"\n- Be honest that you don't have this information\n--- END ---`;
         }
 
-        fullContext += `\n\n**SCOPE RULES**:\n- You help with: ColdFront Minecraft Server, Minecraft gameplay, and friendly conversation\n- You do NOT answer questions about: Roblox, Fortnite, or other games\n- ONLY mention your limitations if someone asks for help with another game\n- Allow casual conversation ("thanks", "bye", "how are you") without bringing up limitations\n\nBe helpful, honest, and friendly. Minecraft = your specialty. Server news = only if provided above.`;
+        fullContext += `\n\n**SCOPE RULES**:\n- ✅ You help with: ALL Minecraft topics (vanilla, plugins, mods, PocketMine, server setups)\n- ❌ You do NOT help with: Roblox, Fortnite, or other non-Minecraft games\n- Only mention scope limitations if asked about non-Minecraft games\n- Allow casual conversation naturally\n\nBe helpful, honest, and friendly. You are a Minecraft expert - ALL aspects of Minecraft!`;
 
         try {
             await message.channel.sendTyping();
