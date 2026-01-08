@@ -1,60 +1,72 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, ChannelType, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ComponentType, REST, Routes, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const ai = require('./src/ai_engine');
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-
-// --- Render / Uptime Robot Keep-Alive ---
-const app = express();
-const port = process.env.PORT || 3000;
-
-app.get('/', (req, res) => {
-    res.send('ColdFront Guardian Active ❄️');
-});
-
-app.listen(port, () => {
-    console.log(`Web server listening on port ${port}`);
-});
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ],
+    partials: [Partials.Channel]
 });
 
-let newsMemory = "No news yet.";
-let NEWS_CATEGORY_ID = ""; // Will load from config
-const CONFIG_PATH = path.join(__dirname, 'config.json');
+// --- STATE MANAGEMENT ---
+const HANGOUT_TIME = 180 * 1000; // 3 minutes in ms
+const hangoutUsers = new Map(); // Map<userId, timestamp>
 
-// --- Load/Save Config ---
+// --- PATTERNS ---
+// --- Persona Load ---
+const PERSONA_PATH = path.join(__dirname, 'docs', 'persona.md');
+let systemPersona = "";
+
+function loadPersona() {
+    try {
+        if (fs.existsSync(PERSONA_PATH)) {
+            systemPersona = fs.readFileSync(PERSONA_PATH, 'utf-8');
+            console.log("✅ Persona loaded from docs/persona.md");
+        } else {
+            console.warn("⚠️ persona.md not found, using default.");
+            systemPersona = "You are Birno, the ColdFront Support Assistant.";
+        }
+    } catch (err) {
+        console.error("Error reading persona:", err);
+    }
+}
+
+const CONFIG_PATH = path.join(__dirname, 'config.json');
+let NEWS_CATEGORY_ID = null;
+let newsMemory = "";
+
 function loadConfig() {
     try {
         if (fs.existsSync(CONFIG_PATH)) {
-            const data = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-            NEWS_CATEGORY_ID = data.newsCategoryId || "";
-            console.log("Config loaded. Category ID:", NEWS_CATEGORY_ID);
+            const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+            NEWS_CATEGORY_ID = config.NEWS_CATEGORY_ID || null;
+            console.log(`✅ Config loaded. NEWS_CATEGORY_ID: ${NEWS_CATEGORY_ID || 'Not Set'}`);
+        } else {
+            console.warn("⚠️ config.json not found, starting with no news category.");
         }
-    } catch (e) { console.error("Config load error:", e); }
+    } catch (err) {
+        console.error("Error reading config:", err);
+    }
 }
 
 function saveConfig(categoryId) {
     NEWS_CATEGORY_ID = categoryId;
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ newsCategoryId: categoryId }, null, 2));
-}
-
-// --- Persona Load ---
-const PERSONA_PATH = path.join(__dirname, 'persona.txt');
-let systemPersona = "";
-try {
-    systemPersona = fs.readFileSync(PERSONA_PATH, 'utf-8');
-} catch (err) {
-    console.error("Error reading persona.txt:", err);
-    systemPersona = "You are the ColdFront Support Bot.";
+    try {
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify({ NEWS_CATEGORY_ID: categoryId }, null, 2), 'utf-8');
+        console.log(`✅ Config saved. NEWS_CATEGORY_ID set to ${categoryId}`);
+    } catch (err) {
+        console.error("Error writing config:", err);
+    }
 }
 
 client.once('ready', async () => {
     loadConfig();
+    loadPersona();
     await ai.init();
-    console.log(`ColdFront Guardian active: ${client.user.tag}`);
+    console.log(`❄️ ColdFront Guardian active: ${client.user.tag}`);
 
     // Register Slash Command
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -80,6 +92,7 @@ client.once('ready', async () => {
 });
 
 async function scanNews() {
+    if (!NEWS_CATEGORY_ID) return;
     const newsCategory = client.channels.cache.get(NEWS_CATEGORY_ID);
     if (newsCategory) {
         let allNews = [];
@@ -140,7 +153,6 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId === 'select_news_category') {
             const selectedId = interaction.values[0];
             saveConfig(selectedId);
-            // Just acknowledge, don't block. User must click Save.
             await interaction.deferUpdate();
         }
     }
@@ -151,19 +163,17 @@ client.on('interactionCreate', async interaction => {
             if (!NEWS_CATEGORY_ID) {
                 return interaction.reply({ content: "⚠️ Please select a category first.", ephemeral: true });
             }
-            // Update UI immediately to prevent timeout
             await interaction.update({
                 content: `✅ **News Category Saved Successfully.**\nSystem updated for <#${NEWS_CATEGORY_ID}>.\nNews context is refreshing in the background...`,
                 components: []
             });
-
-            // Run heavy task in bg
             scanNews().catch(err => console.error("BG Scan Error:", err));
         }
     }
 });
 
 client.on('messageCreate', async (message) => {
+    // Ignore bot messages
     if (message.author.bot) return;
 
     if (message.content.toLowerCase() === '/close') {
@@ -183,34 +193,45 @@ client.on('messageCreate', async (message) => {
         } else {
             fullContext = `${fullContext}\n\nCurrent News/Status: ${newsMemory}`;
         }
+        // Clean text
+        let cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
+        if (!cleanText) cleanText = "Hello!";
 
+        // Latency 2: Typing & Generation
         try {
-            // Retry logic: Attempt up to 2 times
-            let response = null;
-            for (let i = 0; i < 2; i++) {
-                try {
-                    // Increased to 90s to handle Render Free Tier cold starts
-                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 90000));
-                    const aiPromise = ai.generate(message.content, fullContext);
+            await message.channel.sendTyping();
 
-                    response = await Promise.race([aiPromise, timeoutPromise]);
+            const reply = await ai.generate(cleanText, SYSTEM_PROMPT);
 
-                    if (response && response.trim() !== "") break; // Success, exit loop
-                } catch (e) {
-                    console.log(`AI Attempt ${i + 1} failed: ${e.message}`);
-                    if (i === 1) throw e; // Throw on last attempt
-                    // Wait 3 seconds before retrying (backoff)
-                    await new Promise(r => setTimeout(r, 3000));
-                }
+            if (reply && !reply.startsWith("Error:")) {
+                // Truncate if too long
+                const safeReply = reply.length > 1900 ? reply.substring(0, 1900) + '...' : reply;
+                await message.reply(safeReply);
+            } else {
+                console.log("AI Failed or returned error:", reply);
             }
-
-            if (!response || response.trim() === "") throw new Error("Empty response");
-            message.reply(response);
         } catch (err) {
-            console.error("AI Final Error:", err.message);
-            message.reply("⚠️ *I am currently overloaded. Please ask again in a few seconds.*");
+            console.error("Error sending reply:", err);
         }
     }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+// Create src directory if not needed (script is at root) but module is in src/
+// We need to ensure src dir exists as well if it doesn't.
+// Graceful shutdown
+const cleanup = async () => {
+    console.log('\n🛑 Shutting down...');
+    await ai.shutdown();
+    await client.destroy();
+    process.exit(0);
+};
+
+process.on('SIGINT', cleanup);
+process.on('SIGTERM', cleanup);
+
+// Login
+if (!process.env.DISCORD_TOKEN) {
+    console.error("❌ DISCORD_TOKEN missing in .env");
+} else {
+    client.login(process.env.DISCORD_TOKEN);
+}

@@ -1,17 +1,18 @@
 {
   "name": "coldfront-guardian",
   "version": "1.0.0",
-  "description": "Support Discord Bot for ColdFront Minecraft Server",
+  "description": "ColdFront Guardian - AI Support Bot for Coldfront SMP",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.13.2",
+    "axios": "^1.6.0",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5",
     "express": "^5.2.1"
   },
-  "author": "Antigravity Agent",
-  "license": "ISC"
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
