@@ -200,21 +200,31 @@ client.on('messageCreate', async (message) => {
         let cleanText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
         if (!cleanText) cleanText = "Hello!";
 
-        // Latency 2: Typing & Generation
         try {
             await message.channel.sendTyping();
 
-            const reply = await ai.generate(cleanText, SYSTEM_PROMPT);
+            // Retry logic: Attempt up to 2 times
+            let response = null;
+            for (let i = 0; i < 2; i++) {
+                try {
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 90000));
+                    const aiPromise = ai.generate(cleanText, fullContext);
 
-            if (reply && !reply.startsWith("Error:")) {
-                // Truncate if too long
-                const safeReply = reply.length > 1900 ? reply.substring(0, 1900) + '...' : reply;
-                await message.reply(safeReply);
-            } else {
-                console.log("AI Failed or returned error:", reply);
+                    response = await Promise.race([aiPromise, timeoutPromise]);
+
+                    if (response && response.trim() !== "") break;
+                } catch (e) {
+                    console.log(`AI Attempt ${i + 1} failed: ${e.message}`);
+                    if (i === 1) throw e;
+                    await new Promise(r => setTimeout(r, 3000));
+                }
             }
+
+            if (!response || response.trim() === "") throw new Error("Empty response");
+            message.reply(response);
         } catch (err) {
-            console.error("Error sending reply:", err);
+            console.error("AI Final Error:", err.message);
+            message.reply("⚠️ *I am currently overloaded. Please ask again in a few seconds.*");
         }
     }
 });
